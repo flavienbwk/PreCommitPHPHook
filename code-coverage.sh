@@ -2,19 +2,22 @@
 
 # Pre-commit PHP checks hook for git repositories,
 # using the most known libraries for PHP checks.
-# /!\ JUST PUT THIS SCRIPT IN YOUR .git/hooks DIRECTORY /!\
+# /!\ JUST PUT THIS SCRIPT UNDER .git/hooks/pre-commit (file without extension) /!\
 
 # Constants
 
-log_path_error="code_coverage.sh.error.log"
-log_path_info="code_coverage.sh.info.log"
-me_path=$(dirname "$me")"/../../"
+log_path_dir=".pre-commit"
+log_path_error="$log_path_dir/code_coverage.sh.error.log"
+log_path_info="$log_path_dir/code_coverage.sh.info.log"
+target_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/../.."
+me_path=$(dirname "$me")
 me=$(basename "$0")
-analysis_results=".$me.""$RANDOM""$RANDOM.txt"
+analysis_results="$log_path_dir/$me.""$RANDOM""$RANDOM.txt"
 
-phplint_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/vendor/bin/phplint"
-phpcpd_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/vendor/bin/phpcpd"
-phpcs_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/vendor/bin/phpcs"
+phplint_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/../../vendor/bin/phplint"
+phpcpd_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/../../vendor/bin/phpcpd"
+phpcs_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/../../vendor/bin/phpcs"
+phpmd_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/../../vendor/bin/phpmd"
 
 phplint_errors="0"
 phplint_warnings="0"
@@ -94,6 +97,11 @@ compute_score()
 
 echo -e "${BLUE}Welcome to PreCommitPHPHook.${NC}"
 
+if [ ! -d "$log_path_dir" ]
+then
+    mkdir "$log_path_dir"
+fi
+
 # Checking if this script is in a git repository
 if [ "$(basename $(git rev-parse --git-dir))" != ".git" ]
 then
@@ -131,7 +139,8 @@ fi
 
 if [ ! -f "$phplint_path" ]
 then
-    if composer require overtrue/phplint --dev -vvv
+    setLog "Installing phplint..."
+    if composer require overtrue/phplint --dev -vvv >> "${log_path_info}" 2> "${log_path_error}"
     then
         setLog "OK."
     else
@@ -142,7 +151,8 @@ fi
 
 if [ ! -f "$phpcpd_path" ]
 then
-    if composer require --dev sebastian/phpcpd
+    setLog "Installing phpcpd..."
+    if composer require --dev sebastian/phpcpd >> "${log_path_info}" 2> "${log_path_error}"
     then
         setLog "OK."
     else
@@ -153,7 +163,8 @@ fi
 
 if [ ! -f "$phpcs_path" ]
 then
-    if composer require "squizlabs/php_codesniffer=*"
+    setLog "Installing php_codesniffer..."
+    if composer require "squizlabs/php_codesniffer=*" >> "${log_path_info}" 2> "${log_path_error}"
     then
         setLog "OK."
     else
@@ -162,10 +173,10 @@ then
     fi
 fi
 
-if ! [ -x "$(command -v phpmd)" ]
+if [ ! -f "$phpmd_path" ]
 then
     setLog "Installing phpmd..."
-    if apt-get install phpmd -y >> "${log_path_info}" 2> "${log_path_error}"
+    if composer require "phpmd/phpmd" >> "${log_path_info}" 2> "${log_path_error}"
     then
         setLog "OK."
     else
@@ -180,7 +191,7 @@ fi
 ## Self checking current bash script
 echo -e "\n${BLUE}Self checking this script...${NC}"
 echo -e "[SHELLCHECK_START]" >> "${log_path_info}"
-if shellcheck "$me"
+if shellcheck ".git/hooks/$me"
 then
     echo -e "[SHELLCHECK_END]" >> "${log_path_info}"
     setSuccessLog "Perfect."
@@ -191,7 +202,7 @@ fi
 
 echo -e "\n${BLUE}PHP Lint checks...${NC}"
 echo -e "[PHPLINT_START]" >> "${log_path_info}"
-if "$phplint_path" "$me_path" -n --ansi --json="$me.phplint.json" --exclude="$me_path/vendor" --no-configuration --no-cache > "$analysis_results"
+if "$phplint_path" "$target_path" -n --ansi --json="$log_path_dir/$me.phplint.json" --exclude="vendor" --no-configuration --no-cache > "$analysis_results"
 then
     echo -e "[PHPLINT_END]" >> "${log_path_info}"
     setSuccessLog "Perfect."
@@ -205,7 +216,7 @@ phplint_score=$((phplint_errors))
 
 echo -e "\n${BLUE}PHPCPD checks...${NC}"
 echo -e "[PHPCPD_START]" >> "${log_path_info}"
-if "$phpcpd_path" --exclude="#$me_path/vendor/*#" --fuzzy "$me_path" > "$analysis_results"
+if "$phpcpd_path" --regexps-exclude="#vendor/*#" --fuzzy "$target_path" > "$analysis_results"
 then
     echo -e "[PHPCPD_END]" >> "${log_path_info}"
     setSuccessLog "Perfect."
@@ -215,11 +226,11 @@ else
 fi
 cat "$analysis_results"
 phpcpd_errors=$(sed 's/ /\n/g' < $analysis_results | grep % | grep -Eo '[0-9]{1,}' | head -n 1 | awk 'END{print NR?$0:"0"}')
-phpcpd_score=$(($phpcpd_errors / 2))
+phpcpd_score=$(($phpcpd_errors / 2 + $phpcpd_warnings))
 
 echo -e "\n${BLUE}PHPCS checks...${NC}"
 echo -e "[PHPCS_START]" >> "${log_path_info}"
-if "$phpcs_path" --ignore="$me_path/vendor/" "$me_path" > "$analysis_results"
+if "$phpcs_path" --ignore="vendor/" "$target_path" > "$analysis_results"
 then
     echo -e "[PHPCS_END]" >> "${log_path_info}"
     setSuccessLog "Perfect."
@@ -234,7 +245,7 @@ phpcs_score=$((($phpcs_errors) / 2 + ($phpcs_warnings) / 4))
 
 echo -e "\n${BLUE}PHPMD checks...${NC}"
 echo -e "[PHPMD_START]" >> "${log_path_info}"
-if "phpmd" "$me_path" text codesize --exclude "$me_path/vendor/*" > "$analysis_results"
+if "$phpmd_path" . text codesize --exclude "vendor/*" > "$analysis_results"
 then
     echo -e "[PHPMD_END]" >> "${log_path_info}"
     setSuccessLog "Perfect."
@@ -244,7 +255,7 @@ else
 fi
 cat "$analysis_results"
 phpmd_errors=$(wc -l < "$analysis_results")
-phpmd_score=$(($phpmd_errors / 5))
+phpmd_score=$(($phpmd_errors + $phpmd_warnings))
 
 overall_score=$(compute_score "$phplint_score" "$phpcpd_score" "$phpcs_score" "$phpmd_score")
 

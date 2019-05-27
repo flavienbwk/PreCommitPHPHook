@@ -8,7 +8,7 @@ The script creates log files.
 
 ## Installation and usage
 
-Just copy this script inside your `.git/hooks` project directory.
+Just copy this script inside your `.git/hooks` project directory and rename it as `pre-commit` (without extension).
 All dependencies are automatically installed.
 
 ## Libraries used
