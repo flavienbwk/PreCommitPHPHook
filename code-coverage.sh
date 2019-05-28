@@ -10,9 +10,9 @@ log_path_dir=".pre-commit"
 log_path_error="$log_path_dir/code_coverage.sh.error.log"
 log_path_info="$log_path_dir/code_coverage.sh.info.log"
 target_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/../.."
-me_path=$(dirname "$me")
 me=$(basename "$0")
-analysis_results="$log_path_dir/$me.""$RANDOM""$RANDOM.txt"
+seed=${RANDOM}${RANDOM}
+analysis_results="${log_path_dir}/${me}_${seed}.txt"
 
 phplint_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/../../vendor/bin/phplint"
 phpcpd_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/../../vendor/bin/phpcpd"
@@ -188,10 +188,12 @@ fi
 ## 2> "${log_path_error}" | tee "${log_path_info}" | visible but not forwarding errors from previous command
 ## >> "${log_path_info}" 2> "${log_path_error}"    | hidden
 
-## Self checking current bash script
+# # # # # #
+# SHELLCHECK
+# # # # # #
 echo -e "\n${BLUE}Self checking this script...${NC}"
 echo -e "[SHELLCHECK_START]" >> "${log_path_info}"
-if shellcheck ".git/hooks/$me"
+if shellcheck -e SC2004 ".git/hooks/$me"
 then
     echo -e "[SHELLCHECK_END]" >> "${log_path_info}"
     setSuccessLog "Perfect."
@@ -199,10 +201,14 @@ else
     echo -e "[SHELLCHECK_FAILED]" >> "${log_path_info}"
     setWarningLog "Some problems have been found."
 fi
+echo -e "${BLUE}------------------------------${NC}"
 
+# # # # # #
+# PHPLint
+# # # # # #
 echo -e "\n${BLUE}PHP Lint checks...${NC}"
 echo -e "[PHPLINT_START]" >> "${log_path_info}"
-if "$phplint_path" "$target_path" -n --ansi --json="$log_path_dir/$me.phplint.json" --exclude="vendor" --no-configuration --no-cache > "$analysis_results"
+if "$phplint_path" "$target_path" -n --ansi --json="${log_path_dir}/phplint_${seed}.json" --exclude="vendor" --no-configuration --no-cache -vv > "$analysis_results"
 then
     echo -e "[PHPLINT_END]" >> "${log_path_info}"
     setSuccessLog "Perfect."
@@ -211,12 +217,16 @@ else
     setWarningLog "Some problems have been found."
 fi
 cat "$analysis_results"
-phplint_errors=$(grep Files < $analysis_results | sed 's/,/\n/g' | grep Failures | sed 's/:/\n/g' | grep -Eo '[0-9]{1,}' | head -n 1 | awk 'END{print NR?$0:"0"}')
+phplint_errors=$(grep Files < "$analysis_results" | sed 's/,/\n/g' | grep Failures | sed 's/:/\n/g' | grep -Eo '[0-9]{1,}' | head -n 1 | awk 'END{print NR?$0:"0"}')
 phplint_score=$((phplint_errors))
+echo -e "${BLUE}------------------------------${NC}"
 
+# # # # # #
+# PHPCPD
+# # # # # #
 echo -e "\n${BLUE}PHPCPD checks...${NC}"
 echo -e "[PHPCPD_START]" >> "${log_path_info}"
-if "$phpcpd_path" --regexps-exclude="#vendor/*#" --fuzzy "$target_path" > "$analysis_results"
+if "$phpcpd_path" --regexps-exclude="#vendor/*#" --log-pmd "${log_path_dir}/phpcpd_${seed}.xml" --fuzzy "$target_path" > "$analysis_results"
 then
     echo -e "[PHPCPD_END]" >> "${log_path_info}"
     setSuccessLog "Perfect."
@@ -225,12 +235,16 @@ else
     setWarningLog "Some problems have been found."
 fi
 cat "$analysis_results"
-phpcpd_errors=$(sed 's/ /\n/g' < $analysis_results | grep % | grep -Eo '[0-9]{1,}' | head -n 1 | awk 'END{print NR?$0:"0"}')
-phpcpd_score=$(($phpcpd_errors / 2 + $phpcpd_warnings))
+phpcpd_errors=$(sed 's/ /\n/g' < "$analysis_results" | grep % | grep -Eo '[0-9]{1,}' | head -n 1 | awk 'END{print NR?$0:"0"}')
+phpcpd_score=$(($phpcpd_errors / 2 + $phpcpd_warnings / 4))
+echo -e "${BLUE}------------------------------${NC}"
 
+# # # # # #
+# PHPCS
+# # # # # #
 echo -e "\n${BLUE}PHPCS checks...${NC}"
 echo -e "[PHPCS_START]" >> "${log_path_info}"
-if "$phpcs_path" --ignore="vendor/" "$target_path" > "$analysis_results"
+if "$phpcs_path" --ignore="vendor/*" --standard=PSR2 --report-file="${log_path_dir}/phpcs_${seed}.txt" "$target_path"
 then
     echo -e "[PHPCS_END]" >> "${log_path_info}"
     setSuccessLog "Perfect."
@@ -238,14 +252,18 @@ else
     echo -e "[PHPCS_FAILED]" >> "${log_path_info}"
     setWarningLog "Some problems have been found."
 fi
-cat "$analysis_results"
-phpcs_errors=$(grep \| < $analysis_results | grep -c ERROR)
-phpcs_warnings=$(grep \| < $analysis_results | grep -c WARNING)
-phpcs_score=$((($phpcs_errors) / 2 + ($phpcs_warnings) / 4))
+cat "${log_path_dir}/phpcs_${seed}.txt"
+phpcs_errors=$(grep \| < "${log_path_dir}/phpcs_${seed}.txt" | grep -c ERROR)
+phpcs_warnings=$(grep \| < "${log_path_dir}/phpcs_${seed}.txt" | grep -c WARNING)
+phpcs_score=$((($phpcs_errors) + ($phpcs_warnings) / 2))
+echo -e "${BLUE}------------------------------${NC}"
 
+# # # # # #
+# PHPMD
+# # # # # #
 echo -e "\n${BLUE}PHPMD checks...${NC}"
 echo -e "[PHPMD_START]" >> "${log_path_info}"
-if "$phpmd_path" . text codesize --exclude "vendor/*" > "$analysis_results"
+if "$phpmd_path" . text codesize --exclude "vendor/*" --reportfile "${log_path_dir}/phpmd_${seed}.xml" > "$analysis_results"
 then
     echo -e "[PHPMD_END]" >> "${log_path_info}"
     setSuccessLog "Perfect."
@@ -256,9 +274,12 @@ fi
 cat "$analysis_results"
 phpmd_errors=$(wc -l < "$analysis_results")
 phpmd_score=$(($phpmd_errors + $phpmd_warnings))
+echo -e "${BLUE}------------------------------${NC}"
 
+# # # # # #
+# Results
+# # # # # #
 overall_score=$(compute_score "$phplint_score" "$phpcpd_score" "$phpcs_score" "$phpmd_score")
-
 rm "$analysis_results"
 echo -e
 if [ "$overall_score" -ge "80" ]
